@@ -1,0 +1,407 @@
+<meta charset="utf-8">
+<title>Amazon Listing 生成器</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>
+  :root{
+    color-scheme: light dark;
+    --bg:#f6f7f9; --card:#fff; --text:#17181c; --muted:#6b7280; --line:#e5e7eb;
+    --brand:#0b8a4b; --brand-soft:#e9f7ef; --warn:#b45309; --warn-soft:#fef3c7;
+    --input:#fff; --btn-text:#fff; --log-bg:#f8fafc; --log-text:#334155;
+    --ok:#047857; --bad:#b91c1c; --overlay:rgba(15,23,42,.55);
+    --radius:12px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0d1117; --card:#161b22; --text:#e6edf3; --muted:#8b98a5; --line:#2a323c;
+      --brand:#3fb950; --brand-soft:#132a1a; --warn:#d29922; --warn-soft:#2b2312;
+      --input:#0d1117; --btn-text:#07130c; --log-bg:#0d1117; --log-text:#c9d1d9;
+      --ok:#3fb950; --bad:#f85149; --overlay:rgba(0,0,0,.68);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:14px/1.6 -apple-system,"PingFang SC","Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 60px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:20px}
+  .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:20px;align-items:start}
+  @media(max-width:900px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:20px}
+  .card h2{font-size:15px;margin:0 0 14px}
+  .tabs{display:flex;gap:8px;margin-bottom:16px}
+  .tab{flex:1;padding:8px 12px;border:1px solid var(--line);border-radius:9px;background:var(--card);
+       cursor:pointer;font-size:13px;color:var(--muted);text-align:center}
+  .tab.on{border-color:var(--brand);background:var(--brand-soft);color:var(--brand);font-weight:600}
+  label{display:block;font-size:12px;color:var(--muted);margin:12px 0 4px}
+  input,select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:9px;
+       font:inherit;background:var(--input);color:var(--text)}
+  textarea{min-height:76px;resize:vertical}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  .hint{font-size:11px;color:var(--muted);margin-top:4px}
+  details{margin-top:14px;border-top:1px dashed var(--line);padding-top:12px}
+  summary{cursor:pointer;font-size:13px;color:var(--muted)}
+  .check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);margin-top:12px}
+  .check input{width:auto}
+  button.primary{width:100%;margin-top:18px;padding:11px;border:0;border-radius:10px;
+       background:var(--brand);color:var(--btn-text);font-size:15px;font-weight:600;cursor:pointer}
+  button.primary:disabled{opacity:.55;cursor:not-allowed}
+  .log{background:var(--log-bg);color:var(--log-text);border:1px solid var(--line);border-radius:10px;padding:12px;height:300px;overflow:auto;
+       font:12px/1.7 ui-monospace,Consolas,monospace;white-space:pre-wrap}
+  .log .ok{color:var(--ok)}.log .bad{color:var(--bad)}
+  .status{font-size:12px;color:var(--muted);margin-bottom:8px}
+  .result-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+  .pill{font-size:11px;padding:2px 9px;border-radius:999px;background:var(--brand-soft);color:var(--brand)}
+  .pill.warn{background:var(--warn-soft);color:var(--warn)}
+  .block{border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px}
+  .block h3{font-size:12px;color:var(--muted);font-weight:500;margin:0 0 8px;
+       display:flex;justify-content:space-between;align-items:center}
+  .en{font-size:14px;margin:0 0 6px}
+  .zh{font-size:13px;color:var(--muted);margin:0}
+  .copy{border:1px solid var(--line);background:var(--card);border-radius:7px;font-size:11px;
+       padding:3px 8px;cursor:pointer;color:var(--muted)}
+  .copy:hover{border-color:var(--brand);color:var(--brand)}
+  .bullet{border-top:1px solid var(--line);padding:10px 0}
+  .bullet:first-of-type{border-top:0;padding-top:0}
+  .idx{display:inline-block;width:20px;color:var(--muted);font-size:12px}
+  .empty{color:var(--muted);font-size:13px;text-align:center;padding:40px 0}
+  .issues{margin:8px 0 0;padding-left:18px;font-size:12px;color:var(--warn)}
+  .vars{font-size:13px}
+  .vars li{margin-bottom:8px}
+  .hide{display:none}
+</style>
+
+<div class="wrap">
+  <h1>Amazon Listing 生成器</h1>
+  <div class="sub">输入 ASIN 或手动产品信息，生成商品名称、商品亮点与五点描述（中英对照）。</div>
+
+  <div class="grid">
+    <form class="card" id="form">
+      <h2 style="display:flex;justify-content:space-between;align-items:center">
+        产品信息
+        <button type="button" class="copy" id="sampleBtn">填入示例</button>
+      </h2>
+      <div class="tabs">
+        <div class="tab" data-mode="asin">按 ASIN 抓取</div>
+        <div class="tab on" data-mode="manual">手动填写（未上架）</div>
+      </div>
+
+      <div class="row">
+        <div><label>站点</label>
+          <select id="site">
+            <optgroup label="美洲">
+              <option value="US" selected>US 美国</option>
+              <option value="CA">CA 加拿大</option>
+              <option value="MX">MX 墨西哥</option>
+              <option value="BR">BR 巴西</option>
+            </optgroup>
+            <optgroup label="欧洲">
+              <option value="UK">UK 英国</option>
+              <option value="DE">DE 德国</option>
+              <option value="FR">FR 法国</option>
+              <option value="IT">IT 意大利</option>
+              <option value="ES">ES 西班牙</option>
+              <option value="NL">NL 荷兰</option>
+              <option value="BE">BE 比利时</option>
+              <option value="SE">SE 瑞典</option>
+              <option value="PL">PL 波兰</option>
+              <option value="TR">TR 土耳其</option>
+            </optgroup>
+            <optgroup label="亚太">
+              <option value="JP">JP 日本</option>
+              <option value="AU">AU 澳大利亚</option>
+              <option value="IN">IN 印度</option>
+              <option value="SG">SG 新加坡</option>
+            </optgroup>
+            <optgroup label="中东">
+              <option value="AE">AE 阿联酋</option>
+              <option value="SA">SA 沙特</option>
+            </optgroup>
+          </select></div>
+        <div><label>品牌</label><input id="brand" placeholder="如 HOKEMOM"></div>
+      </div>
+
+      <div id="asinBlock" class="hide">
+        <label>我的 ASIN</label><input id="asin" placeholder="B0XXXXXXXX">
+        <div class="hint">填了 ASIN 会用它的类目做竞品筛选；不填则按候选类目自动聚类。</div>
+      </div>
+
+      <div id="manualBlock">
+        <label>产品名称 / 类型 *</label><input id="manual_title" placeholder="如 矩形水槽收纳架，带可拆卸高刷架">
+        <div class="row">
+          <div><label>售价</label><input id="manual_price" placeholder="$14.53"></div>
+          <div><label>类目路径</label><input id="manual_breadcrumbs" placeholder="Home & Kitchen > Kitchen & Dining"></div>
+        </div>
+        <label>产品属性（每行一条，格式 属性: 值）</label>
+        <textarea id="manual_specs" placeholder="Material: 不锈钢
+Color: 黑色
+Product Dimensions: 9.65D x 5.9W x 5.5H
+Special Feature: 快干, 防滑"></textarea>
+        <label>产品卖点（每行一条，可留空）</label>
+        <textarea id="manual_bullets" placeholder="矩形框架 + 可拆卸高刷架
+附带吸水干燥石托盘
+底部防滑硅胶垫"></textarea>
+      </div>
+
+      <div id="compBlock" style="border-top:1px dashed var(--line);margin-top:14px;padding-top:12px">
+        <label>竞品 ASIN（选填，逗号分隔，填了就跳过自动选品）</label>
+        <input id="competitors" placeholder="B0...,B0...">
+        <div class="check"><input type="checkbox" id="auto_competitors">
+          <label for="auto_competitors" style="margin:0">自动选品：关键词搜索 → 类目 BSR 校验 → 前 5（2-4 分钟）</label></div>
+        <label>搜索关键词（逗号分隔，可填多个）</label>
+        <input id="search_keyword" placeholder="如 sink caddy, kitchen sink organizer">
+        <div class="row3">
+          <div><label>每词搜索页数</label><input id="search_pages" type="number" value="5" min="1" max="10"></div>
+          <div><label>BSR 上限</label><input id="bsr_max" type="number" value="100" min="1"></div>
+          <div><label>候选上限</label><input id="cand_cap" value="80" disabled></div>
+        </div>
+        <div class="hint">手动模式下会按候选的叶子类目聚类，取命中最多、排名最高的类目，再筛前 5。</div>
+      </div>
+
+      <label>核心关键词（选填，逗号分隔）</label>
+      <input id="seed_keywords" placeholder="sink caddy, kitchen sink organizer">
+
+      <details>
+        <summary>进阶设置</summary>
+        <label>补充说明 / 纠正（会优先于抓取信息）</label>
+        <textarea id="extra" placeholder="如：实际形态是矩形水槽架 + 可拆卸高刷架，没有 6 个分隔仓"></textarea>
+        <label>剔除错误规格字段（逗号分隔）</label>
+        <input id="drop_spec" placeholder="Number of Compartments">
+        <div class="check"><input type="checkbox" id="no_xiyou">
+          <label for="no_xiyou" style="margin:0">跳过西柚 MCP（不查反查词和搜索量）</label></div>
+      </details>
+
+      <button class="primary" id="submitBtn" type="submit">开始生成</button>
+    </form>
+
+    <div>
+      <div class="card" id="progressCard">
+        <h2>执行进度</h2>
+        <div class="status" id="status">等待提交</div>
+        <div class="log" id="log">// 提交后这里显示实时日志</div>
+      </div>
+      <div class="card hide" id="resultCard" style="margin-top:20px">
+        <div class="result-head">
+          <h2 style="margin:0">生成结果</h2>
+          <button class="copy hide" id="compBtn" style="margin-left:auto">查看竞品数据</button>
+          <span class="pill" id="compliancePill">合规通过</span>
+        </div>
+        <div id="resultBody"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.modal{position:fixed;inset:0;background:var(--overlay);display:flex;align-items:center;justify-content:center;z-index:50;padding:24px}
+.modal.hide{display:none}
+.modal-panel{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:16px;max-width:860px;width:100%;max-height:82vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.35)}
+.modal-head{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)}
+.modal-head h3{margin:0;font-size:16px}
+#compBody{overflow:auto;padding:16px 20px}
+.comp-item{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+.comp-item h4{margin:0 0 6px;font-size:14px}
+.comp-item .meta{color:var(--muted);font-size:12px;margin-bottom:8px}
+.comp-item ol{margin:0;padding-left:20px;font-size:13px;line-height:1.55}
+.comp-item a{color:var(--brand);text-decoration:none}
+button.copy:disabled{opacity:.45;cursor:not-allowed}
+#toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(.96);background:var(--text);color:var(--card);padding:10px 18px;border-radius:10px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease;z-index:60;white-space:nowrap}
+#toast.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+</style>
+<div id="toast"></div>
+<div class="modal hide" id="compModal">
+  <div class="modal-panel">
+    <div class="modal-head">
+      <h3 id="compTitle">竞品标题与五点</h3>
+      <button class="copy" id="compClose">关闭</button>
+    </div>
+    <div id="compBody"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  let mode = "manual";
+  let jobId = null, timer = null, compData = [];
+
+  document.querySelectorAll(".tab").forEach(t => {
+    t.addEventListener("click", () => {
+      mode = t.dataset.mode;
+      document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === t));
+      $("asinBlock").classList.toggle("hide", mode !== "asin");
+      $("manualBlock").classList.toggle("hide", mode !== "manual");
+    });
+  });
+
+  function esc(s){
+    return String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+      ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
+
+  let toastTimer = null;
+  function toast(msg){
+    const el = $("toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 2400);
+  }
+
+  function copyBtn(text, label){
+    const data = encodeURIComponent(text || "");
+    return `<button class="copy" data-copy="${data}">${label || "复制"}</button>`;
+  }
+
+  $("sampleBtn").addEventListener("click", () => {
+    $("brand").value = "HOKEMOM";
+    $("manual_title").value = "矩形水槽收纳架，带可拆卸高刷架";
+    $("manual_price").value = "$14.53";
+    $("manual_breadcrumbs").value = "Home & Kitchen > Kitchen & Dining > Kitchen Storage & Organization";
+    $("manual_specs").value = "Material: 喷漆不锈钢\nColor: 黑色\nProduct Dimensions: 9.65\"D x 5.9\"W x 5.5\"H\nItem Weight: 1.4 pounds\nSpecial Feature: 快干, 防滑, 可拆卸高刷架";
+    $("manual_bullets").value = "矩形框架配一个可拆卸、可调位置的高刷架\n附带吸水干燥石托盘\n底部防滑硅胶垫";
+    $("seed_keywords").value = "sink caddy, kitchen sink organizer";
+    $("search_keyword").value = "sink caddy, kitchen sink organizer";
+    $("extra").value = "产品形态：矩形水槽收纳架 + 可拆卸高刷架，没有 6 个独立分隔仓。";
+  });
+
+  $("auto_competitors").addEventListener("change", (e) => {
+    if (e.target.checked) toast("自动选品约 2-4 分钟，约 200 credits");
+  });
+
+  $("compBtn").addEventListener("click", () => {
+    $("compBody").innerHTML = compData.map((c, i) => `
+      <div class="comp-item">
+        <h4>${i + 1}. ${esc(c.asin || "")} ${c.url ? `<a href="${esc(c.url)}" target="_blank" rel="noopener">打开链接</a>` : ""}</h4>
+        <div class="meta">${esc(c.price || "")}${c.rating ? " · " + esc(c.rating) : ""}${c.review_count ? " · " + esc(c.review_count) : ""}</div>
+        <div class="en" style="font-size:13px;margin-bottom:8px">${esc(c.title || "")}</div>
+        <ol>${(c.bullets || []).map(b => `<li>${esc(b)}</li>`).join("")}</ol>
+      </div>`).join("");
+    $("compModal").classList.remove("hide");
+  });
+  $("compClose").addEventListener("click", () => $("compModal").classList.add("hide"));
+  $("compModal").addEventListener("click", (e) => {
+    if (e.target.id === "compModal") $("compModal").classList.add("hide");
+  });
+
+  $("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = {
+      mode, site: $("site").value, brand: $("brand").value,
+      asin: $("asin").value, competitors: $("competitors").value,
+      auto_competitors: $("auto_competitors").checked,
+      search_keyword: $("search_keyword").value,
+      search_keywords: $("search_keyword").value,
+      search_pages: +$("search_pages").value || 5,
+      bsr_max: +$("bsr_max").value || 100,
+      seed_keywords: $("seed_keywords").value,
+      extra: $("extra").value, drop_spec: $("drop_spec").value,
+      no_xiyou: $("no_xiyou").checked,
+      manual_title: $("manual_title").value,
+      manual_price: $("manual_price").value,
+      manual_breadcrumbs: $("manual_breadcrumbs").value,
+      manual_specs: $("manual_specs").value,
+      manual_bullets: $("manual_bullets").value
+    };
+    $("submitBtn").disabled = true;
+    $("resultCard").classList.add("hide");
+    $("log").textContent = "";
+    $("status").textContent = "提交中…";
+    try {
+      const r = await fetch("/api/generate", {method:"POST",
+        headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.detail || "提交失败");
+      jobId = data.job_id;
+      $("status").textContent = "任务运行中…";
+      timer = setInterval(poll, 1200);
+    } catch (err) {
+      $("status").textContent = "失败：" + err.message;
+      $("submitBtn").disabled = false;
+    }
+  });
+
+  async function poll(){
+    if (!jobId) return;
+    try {
+      const r = await fetch("/api/jobs/" + jobId);
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || "查询失败");
+      const log = $("log");
+      log.textContent = (d.logs || []).join("\n") || "// 启动中…";
+      log.scrollTop = log.scrollHeight;
+      if (d.status === "queued") $("status").textContent = "排队中…";
+      if (d.status === "running") $("status").textContent = "任务运行中…";
+      if (d.status === "done") {
+        clearInterval(timer);
+        $("status").textContent = "完成";
+        $("submitBtn").disabled = false;
+        render(d.result);
+      } else if (d.status === "error") {
+        clearInterval(timer);
+        $("status").textContent = "失败：" + (d.error || "未知错误");
+        $("submitBtn").disabled = false;
+      }
+    } catch (err) {
+      clearInterval(timer);
+      $("status").textContent = "查询失败：" + err.message;
+      $("submitBtn").disabled = false;
+    }
+  }
+
+  function render(res){
+    if (!res) return;
+    const name = res.product_name || "", nameZh = res.product_name_zh || "";
+    const hi = res.highlights || "", hiZh = res.highlights_zh || "";
+    const bullets = res.bullets || [], bulletsZh = res.bullets_zh || [];
+    const comp = res.compliance || {};
+    const issues = [].concat(comp.name_issues || [], comp.highlight_issues || [], comp.bullet_issues || []);
+    const pill = $("compliancePill");
+    pill.textContent = issues.length ? `需注意 ${issues.length} 项` : "合规通过";
+    pill.className = "pill" + (issues.length ? " warn" : "");
+
+    let html = "";
+    html += `<div class="block"><h3>商品名称 ${copyBtn(name)}</h3>
+      <p class="en">${esc(name)}</p><p class="zh">${esc(nameZh)}</p></div>`;
+    html += `<div class="block"><h3>商品亮点 ${copyBtn(hi)}</h3>
+      <p class="en">${esc(hi)}</p><p class="zh">${esc(hiZh)}</p></div>`;
+    html += `<div class="block"><h3>五点描述 ${copyBtn(bullets.join("\n"))}</h3>`;
+    bullets.forEach((b, i) => {
+      html += `<div class="bullet"><div class="en"><span class="idx">${i+1}</span>${esc(b)}</div>
+        <div class="zh" style="padding-left:20px">${esc(bulletsZh[i] || "")}</div></div>`;
+    });
+    html += `</div>`;
+
+    const vars = res.title_variants || [];
+    if (vars.length > 1) {
+      html += `<details><summary>其他标题方案（${vars.length-1} 个）</summary><ul class="vars">`;
+      vars.slice(1).forEach(v => {
+        html += `<li><b>${esc(v.angle)}</b><br>${esc(v.product_name)}<br>
+          <span class="zh">${esc(v.highlights)}</span></li>`;
+      });
+      html += `</ul></details>`;
+    }
+    if (issues.length) {
+      html += `<ul class="issues">` + issues.map(x => `<li>${esc(x)}</li>`).join("") + `</ul>`;
+    }
+    compData = res.competitors || [];
+    const cbtn = $("compBtn");
+    cbtn.classList.remove("hide");
+    cbtn.disabled = !compData.length;
+    cbtn.textContent = compData.length ? `查看竞品数据（${compData.length}）` : "无竞品数据";
+    $("resultBody").innerHTML = html;
+    $("resultCard").classList.remove("hide");
+
+    document.querySelectorAll("[data-copy]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const text = decodeURIComponent(btn.dataset.copy);
+        navigator.clipboard.writeText(text).then(() => {
+          const old = btn.textContent;
+          btn.textContent = "已复制";
+          setTimeout(() => btn.textContent = old, 1200);
+        });
+      });
+    });
+  }
+})();
+</script>

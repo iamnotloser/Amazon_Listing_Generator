@@ -1,0 +1,48 @@
+# ---- 密钥 / 凭证 ----
+.env
+*.env
+!.env.example
+listing_pw.json
+*.pem
+*.key
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# ---- 运行产物 ----
+output/
+listing_gen/output/
+*.log
+debug.log
+listing_gen/data/cache/
+listing_gen/data/*.json
+
+# ---- 前端 / Node 残留 ----
+node_modules/
+package-lock.json
+
+# ---- 本地临时脚本与截图 ----
+/probe_*.py
+/check_env.py
+/test_*.py
+/resume_gen*.js
+package.json
+.screenshots/
+*.png
+*.jpg
+*.docx
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ---- 压缩包 ----
+*.zip
+*.7z
+*.rar

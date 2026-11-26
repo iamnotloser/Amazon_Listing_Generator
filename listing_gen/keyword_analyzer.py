@@ -5,6 +5,9 @@
 import re
 from collections import defaultdict
 
+# 支持非 ASCII 字母（德语变音 ü/ö/ä/ß、法语重音等），避免把 Spülbecken 切成 Sp + lbecken
+WORD_RE = re.compile(r"[^\W\d_][\w'-]*", re.UNICODE)
+
 # 英文停用词（冠词/介词/连词/代词/助动词/常见榜单词）
 STOPWORDS = set("""
 a an the and or but for with without of to in on at by from into over under up down out
@@ -13,6 +16,20 @@ this that these those it its their your our my his her them we you they i he she
 as so than then there here when where which who whom what how why if while because
 not no nor only just also very more most much many some any all each every both few
 new best great perfect amazing top premium quality high low big small large
+""".split())
+
+# 多语种停用词：德/法/西/意的高频虚词
+STOPWORDS |= set("""
+der die das den dem des ein eine einer eines einem einen und oder aber mit ohne fuer für
+von vom zu zum zur im am an auf aus bei nach ueber über unter vor hinter zwischen
+ist sind war waren wird werden wurde wurden sein hat haben hatte hatten nicht kein keine
+auch nur sehr mehr meist sowie bzw
+
+le la les un une des du de et ou avec sans pour dans sur sous par au aux ce cette ces
+est sont pas plus tres très
+
+el los las una uno unos unas y o con sin para por en del al es son
+il lo gli i di da con per su e o sono
 """.split())
 
 # Amazon 特有的无意义词
@@ -48,7 +65,7 @@ def normalize_word(w: str) -> str:
 
 
 def extract_words(text: str) -> list:
-    tokens = re.findall(r"[A-Za-z][A-Za-z\-']+", text or "")
+    tokens = WORD_RE.findall(text or "")
     out = []
     for t in tokens:
         n = normalize_word(t)
@@ -73,7 +90,7 @@ def analyze(listings: list, my_asin: str, top_n: int = 40) -> dict:
             title_freq[w].add(asin)
 
         # 2-3 词短语（标题）
-        raw = [normalize_word(x) for x in re.findall(r"[A-Za-z][A-Za-z\-']+", title)]
+        raw = [normalize_word(x) for x in WORD_RE.findall(title)]
         raw = [x for x in raw if x and x not in STOPWORDS and x not in AMZ_NOISE]
         for n in (2, 3):
             for i in range(len(raw) - n + 1):
@@ -83,7 +100,7 @@ def analyze(listings: list, my_asin: str, top_n: int = 40) -> dict:
             bw = extract_words(b)
             for w in bw:
                 bullet_freq[w] += 1
-            braw = [normalize_word(x) for x in re.findall(r"[A-Za-z][A-Za-z\-']+", b)]
+            braw = [normalize_word(x) for x in WORD_RE.findall(b)]
             braw = [x for x in braw if x and x not in STOPWORDS and x not in AMZ_NOISE]
             for n in (2, 3):
                 for i in range(len(braw) - n + 1):
@@ -134,7 +151,7 @@ def merge_with_xiyou(word_analysis: dict, xiyou_rows: list, top_n: int = 30,
     pm = phrase_metrics or {}
 
     def blocked(kw: str) -> bool:
-        toks = set(re.findall(r"[a-z]{3,}", kw.lower()))
+        toks = {w for w in WORD_RE.findall(kw.lower()) if len(w) >= 3}
         return bool(toks & exclude)
 
     merged = {}
@@ -207,3 +224,22 @@ def merge_with_xiyou(word_analysis: dict, xiyou_rows: list, top_n: int = 30,
 
     out = sorted(merged.values(), key=rank_score, reverse=True)
     return out[:top_n]
+
+
+def split_keywords(keywords: list, title: str = "", title_slots: int = 8) -> dict:
+    """按标题已覆盖情况拆分关键词，供标题与五点分配埋词"""
+    low = (title or "").lower()
+    covered, remaining = [], []
+    for k in keywords:
+        if not k:
+            continue
+        (covered if k.lower() in low else remaining).append(k)
+    return {"title": keywords[:title_slots], "covered": covered, "remaining": remaining}
+
+
+def keyword_coverage(keywords: list, title: str, bullets: list, top: int = 20) -> dict:
+    """统计标题+五点对前 N 个关键词的覆盖情况"""
+    text = (title + " " + " ".join(bullets)).lower()
+    target = keywords[:top]
+    missing = [k for k in target if k.lower() not in text]
+    return {"hit": len(target) - len(missing), "total": len(target), "missing": missing}

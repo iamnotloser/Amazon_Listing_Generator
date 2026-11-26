@@ -41,6 +41,17 @@ class BulletPlan(BaseModel):
     plans: List[dict] = Field(description='3 套方案，每套 {"direction": "...", "angles": ["第1条角度", ...共5条]}')
 
 
+class CompetitorMatch(BaseModel):
+    asin: str
+    reason: str = Field(default="", description="一句中文说明")
+
+
+class CompetitorFilter(BaseModel):
+    """搜索结果里筛出与目标商品同品类的候选。"""
+    relevant: List[CompetitorMatch] = Field(default_factory=list)
+    rejected: List[CompetitorMatch] = Field(default_factory=list)
+
+
 class ComplianceIssue(BaseModel):
     level: str = Field(description="high / medium / low")
     item: str = Field(description="出问题的位置，如 标题 / 五点第3条")

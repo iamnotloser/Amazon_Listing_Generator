@@ -69,6 +69,23 @@
   .vars{font-size:13px}
   .vars li{margin-bottom:8px}
   .hide{display:none}
+  .action{border:1px solid var(--brand);background:var(--brand-soft);color:var(--brand);border-radius:8px;font-size:13px;font-weight:600;padding:6px 14px;cursor:pointer;white-space:nowrap;position:relative}
+  .action:hover{background:var(--brand);color:var(--btn-text)}
+  .action.warn{border-color:var(--warn);background:var(--warn-soft);color:var(--warn)}
+  .action.warn:hover{background:var(--warn);color:#fff}
+  .action.ghost{background:transparent}
+  .action:disabled{opacity:.45;cursor:not-allowed}
+  .result-head .btns{display:flex;gap:8px;margin-left:auto;align-items:center}
+  @media(max-width:520px){.result-head{flex-wrap:wrap}.result-head .btns{margin-top:8px;margin-left:0;flex:1}}
+  /* 下载按钮 + 下拉菜单 */
+  .dl-wrap{position:relative;display:inline-block}
+  .dl-menu{position:absolute;top:calc(100% + 6px);right:0;min-width:180px;background:var(--card);border:1px solid var(--line);
+    border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:6px 0;z-index:55;display:none}
+  .dl-menu.show{display:block}
+  .dl-menu button{display:block;width:100%;padding:8px 14px;border:0;background:transparent;color:var(--text);
+    font-size:13px;text-align:left;cursor:pointer}
+  .dl-menu button:hover{background:var(--brand-soft);color:var(--brand)}
+  .dl-wrap.ghost .action::after{content:" ▾";font-size:11px}
 </style>
 
 <div class="wrap">
@@ -76,7 +93,7 @@
   <div class="sub">输入 ASIN 或手动产品信息，生成商品名称、商品亮点与五点描述（中英对照）。</div>
 
   <div class="grid">
-    <form class="card" id="form">
+    <form class="card" id="form" autocomplete="off">
       <h2 style="display:flex;justify-content:space-between;align-items:center">
         产品信息
         <button type="button" class="copy" id="sampleBtn">填入示例</button>
@@ -169,6 +186,8 @@ Special Feature: 快干, 防滑"></textarea>
         <input id="drop_spec" placeholder="Number of Compartments">
         <div class="check"><input type="checkbox" id="no_xiyou">
           <label for="no_xiyou" style="margin:0">跳过西柚 MCP（不查反查词和搜索量）</label></div>
+        <div class="check"><input type="checkbox" id="review" checked>
+          <label for="review" style="margin:0">生成后执行合规评估并自动调整（amazon-ops-optimizer）</label></div>
       </details>
 
       <button class="primary" id="submitBtn" type="submit">开始生成</button>
@@ -183,8 +202,19 @@ Special Feature: 快干, 防滑"></textarea>
       <div class="card hide" id="resultCard" style="margin-top:20px">
         <div class="result-head">
           <h2 style="margin:0">生成结果</h2>
-          <button class="copy hide" id="compBtn" style="margin-left:auto">查看竞品数据</button>
-          <span class="pill" id="compliancePill">合规通过</span>
+          <div class="btns">
+            <button class="action hide" id="compBtn">查看竞品数据</button>
+            <div class="dl-wrap ghost hide" id="dlWrap">
+              <button class="action ghost" id="dlToggle">下载数据</button>
+              <div class="dl-menu" id="dlMenu">
+                <button data-fmt="listing.md">Markdown (.md)</button>
+                <button data-fmt="listing.docx">Word (.docx)</button>
+                <button data-fmt="listing.pdf">PDF (.pdf)</button>
+                <button data-fmt="listing_bundle.zip" style="border-top:1px solid var(--line);margin-top:4px;padding-top:10px">打包全部（zip）</button>
+              </div>
+            </div>
+            <button class="action hide" id="reviewBtn">Listing 合规评估</button>
+          </div>
         </div>
         <div id="resultBody"></div>
       </div>
@@ -224,6 +254,44 @@ button.copy:disabled{opacity:.45;cursor:not-allowed}
   const $ = id => document.getElementById(id);
   let mode = "manual";
   let jobId = null, timer = null, compData = [];
+  let reviewData = {};
+
+  // —— 输入框只记忆上一次的值（关掉浏览器历史下拉，避免堆积多条）——
+  const REMEMBER_IDS = ["brand", "asin", "manual_title", "manual_price",
+    "manual_breadcrumbs", "manual_specs", "manual_bullets", "competitors",
+    "search_keyword", "seed_keywords", "extra", "drop_spec",
+    "search_pages", "bsr_max"];
+  const MEM_PREFIX = "lg_last_";
+
+  // 1) 禁用浏览器自带的输入历史下拉（用非法值强制关闭，Chrome 对 off 有时不生效）
+  document.querySelectorAll("#form input, #form textarea").forEach(el => {
+    el.setAttribute("autocomplete", "nope");
+    el.setAttribute("autocorrect", "off");
+    el.setAttribute("spellcheck", "false");
+  });
+
+  // 2) 加载时只回填最近一次的值（每个字段最多一条）
+  REMEMBER_IDS.forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    try {
+      const v = localStorage.getItem(MEM_PREFIX + id);
+      if (v !== null && v !== "") el.value = v;
+    } catch (e) {}
+  });
+
+  // 3) 提交时覆盖保存，永远只保留最新一条
+  function rememberInputs() {
+    REMEMBER_IDS.forEach(id => {
+      const el = $(id);
+      if (!el) return;
+      try {
+        const v = (el.value || "").trim();
+        if (v) localStorage.setItem(MEM_PREFIX + id, v);
+        else localStorage.removeItem(MEM_PREFIX + id);
+      } catch (e) {}
+    });
+  }
 
   document.querySelectorAll(".tab").forEach(t => {
     t.addEventListener("click", () => {
@@ -297,6 +365,7 @@ button.copy:disabled{opacity:.45;cursor:not-allowed}
       seed_keywords: $("seed_keywords").value,
       extra: $("extra").value, drop_spec: $("drop_spec").value,
       no_xiyou: $("no_xiyou").checked,
+      review: $("review").checked,
       manual_title: $("manual_title").value,
       manual_price: $("manual_price").value,
       manual_breadcrumbs: $("manual_breadcrumbs").value,
@@ -307,6 +376,7 @@ button.copy:disabled{opacity:.45;cursor:not-allowed}
     $("resultCard").classList.add("hide");
     $("log").textContent = "";
     $("status").textContent = "提交中…";
+    rememberInputs();
     try {
       const r = await fetch("/api/generate", {method:"POST",
         headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
@@ -356,11 +426,16 @@ button.copy:disabled{opacity:.45;cursor:not-allowed}
     const bullets = res.bullets || [], bulletsZh = res.bullets_zh || [];
     const comp = res.compliance || {};
     const issues = [].concat(comp.name_issues || [], comp.highlight_issues || [], comp.bullet_issues || []);
-    const pill = $("compliancePill");
-    pill.textContent = issues.length ? `需注意 ${issues.length} 项` : "合规通过";
-    pill.className = "pill" + (issues.length ? " warn" : "");
 
     let html = "";
+    const cov = res.keyword_coverage;
+    if (cov && cov.total) {
+      const miss = (cov.missing || []).slice(0, 8).join("、");
+      html += `<p class="zh">关键词覆盖：${cov.hit}/${cov.total}${miss ? `，未覆盖：${esc(miss)}` : ""}</p>`;
+    }
+    if (res.info_insufficient) {
+      html += `<p class="zh" style="color:var(--warn)">⚠ 产品信息偏少（仅 ${res.feature_points?.length || 1} 个独立卖点），当前生成 ${res.bullet_count} 条五点；建议补充更多产品特征。</p>`;
+    }
     html += `<div class="block"><h3>商品名称 ${copyBtn(name)}</h3>
       <p class="en">${esc(name)}</p><p class="zh">${esc(nameZh)}</p></div>`;
     html += `<div class="block"><h3>商品亮点 ${copyBtn(hi)}</h3>
@@ -376,19 +451,42 @@ button.copy:disabled{opacity:.45;cursor:not-allowed}
     if (vars.length > 1) {
       html += `<details><summary>其他标题方案（${vars.length-1} 个）</summary><ul class="vars">`;
       vars.slice(1).forEach(v => {
-        html += `<li><b>${esc(v.angle)}</b><br>${esc(v.product_name)}<br>
-          <span class="zh">${esc(v.highlights)}</span></li>`;
+        html += `<li><b>${esc(v.angle)}</b>
+          <div class="en" style="margin:4px 0 2px">${esc(v.product_name)}</div>
+          <div class="zh" style="margin:0 0 4px">${esc(v.product_name_zh || "")}</div>
+          <div class="en" style="margin:0 0 2px;font-size:13px">${esc(v.highlights)}</div>
+          <div class="zh" style="margin:0">${esc(v.highlights_zh || "")}</div></li>`;
       });
       html += `</ul></details>`;
     }
     if (issues.length) {
       html += `<ul class="issues">` + issues.map(x => `<li>${esc(x)}</li>`).join("") + `</ul>`;
     }
+
     compData = res.competitors || [];
+    reviewData = res.review || {};
     const cbtn = $("compBtn");
     cbtn.classList.remove("hide");
     cbtn.disabled = !compData.length;
     cbtn.textContent = compData.length ? `查看竞品数据（${compData.length}）` : "无竞品数据";
+
+    const revBtn = $("reviewBtn");
+    if (reviewData.verdict && reviewData.verdict !== "skipped") {
+      revBtn.classList.remove("hide");
+      revBtn.classList.toggle("warn", reviewData.verdict !== "ready");
+    } else if (reviewData.verdict === "skipped") {
+      revBtn.classList.remove("hide");
+      revBtn.disabled = true;
+    } else {
+      revBtn.classList.add("hide");
+    }
+
+    const dlWrap = $("dlWrap");
+    if (res.output_stem) {
+      dlWrap.classList.remove("hide");
+    } else {
+      dlWrap.classList.add("hide");
+    }
     $("resultBody").innerHTML = html;
     $("resultCard").classList.remove("hide");
 
@@ -403,5 +501,31 @@ button.copy:disabled{opacity:.45;cursor:not-allowed}
       });
     });
   }
+
+  // —— 下载下拉菜单 ——
+  const dlWrap = $("dlWrap");
+  const dlMenu = $("dlMenu");
+  const dlToggle = $("dlToggle");
+  dlToggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    dlMenu.classList.toggle("show");
+  });
+  dlMenu.querySelectorAll("button").forEach(b => {
+    b.addEventListener("click", () => {
+      const fmt = b.dataset.fmt;
+      if (!jobId) return;
+      window.location.href = `/api/jobs/${jobId}/download/${fmt}`;
+      dlMenu.classList.remove("show");
+    });
+  });
+  document.addEventListener("click", (e) => {
+    if (!dlWrap.contains(e.target)) dlMenu.classList.remove("show");
+  });
+
+  // —— 合规评估：跳转到独立页面 ——
+  $("reviewBtn").addEventListener("click", () => {
+    if (!jobId) return;
+    location.href = `/review?job=${encodeURIComponent(jobId)}`;
+  });
 })();
 </script>

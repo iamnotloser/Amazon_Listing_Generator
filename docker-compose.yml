@@ -1,0 +1,41 @@
+version: "3.9"
+
+# 把下面的 YOUR_DOMAIN.COM 换成你买的域名（例如 listinggen.example.com）
+# 域名 DNS 必须已指向服务器公网 IP，Caddy 才能自动签 HTTPS 证书
+
+services:
+  web:
+    build: .
+    container_name: listinggen-web
+    env_file:
+      - .env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+    volumes:
+      - ./data/cache:/app/data/cache
+      - ./output:/app/output
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: listinggen-caddy
+    depends_on:
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

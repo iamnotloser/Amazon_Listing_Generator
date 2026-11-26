@@ -8,7 +8,8 @@ from langchain_core.output_parsers import PydanticOutputParser
 from langchain_openai import ChatOpenAI
 
 from listing_gen import prompts
-from listing_gen.schemas import BulletPlan, BulletSet, TitleFields
+from listing_gen.schemas import (BulletPlan, BulletSet, CompetitorFilter,
+                                 TitleFields)
 from listing_gen.title_builder import (build_highlights, build_product_name,
                                        format_bullet)
 
@@ -64,6 +65,24 @@ def call_structured(llm, system: str, human: str, human_vars: dict,
     raise RuntimeError(f"LLM 结构化输出连续 {max_retry + 1} 次失败: {last_err}")
 
 
+def filter_competitors(product_ref: str, candidates: list) -> tuple[set, list]:
+    """按产品类型筛候选 ASIN，返回 (保留的 asin 集合, 被排除的 [(asin, reason)])。
+
+    关键词常有歧义（如德语 abtropfgestell geschirr 会搜出餐具沥水架），
+    用目标商品信息做语义判断，避免选到不同品类的商品。
+    """
+    llm = get_llm(temperature=0)
+    lines = [f"{c['asin']} | {(c.get('title') or '').strip()[:160]}" for c in candidates]
+    human = (f"目标商品信息：\n{product_ref}\n\n"
+             f"候选商品（asin | 标题）：\n" + "\n".join(lines))
+    data = call_structured(llm, prompts.COMPETITOR_FILTER_SYSTEM, human, {},
+                           CompetitorFilter, temperature=0)
+    relevant = {x["asin"] for x in data.get("relevant") or [] if x.get("asin")}
+    rejected = [(x.get("asin"), x.get("reason") or "") for x in data.get("rejected") or []
+                if x.get("asin")]
+    return relevant, rejected
+
+
 def generate_titles(site: dict, product_input: str, product_facts: str,
                     competitor_titles: list, keywords: list, differentiators: str = "",
                     brand: str = "") -> list:
@@ -73,8 +92,10 @@ def generate_titles(site: dict, product_input: str, product_facts: str,
     angles = ["核心功能优先", "使用场景优先", "规格参数优先"]
     for angle in angles:
         sys_prompt = prompts.TITLE_SYSTEM.format(
+            site_language=site["language"],
+            site_notes=site.get("style_notes") or site["language"],
             site_spelling=site["spelling"],
-            keywords=", ".join(keywords[:15]) or "（无，请从竞品标题自行判断）",
+            keywords=", ".join(keywords[:10]) or "（无，请从竞品标题自行判断）",
             product_facts=product_facts,
             differentiators=differentiators or "（未提供，请从产品事实中自行判断）",
         ) + f"\n本次侧重：{angle}"
@@ -99,12 +120,13 @@ def generate_titles(site: dict, product_input: str, product_facts: str,
 
 
 def generate_bullet_plans(site: dict, product_facts: str, keywords: list,
-                          competitor_style: str = "") -> list:
+                          competitor_style: str = "", n_bullets: int = 5) -> list:
     llm = get_llm(temperature=0.6)
     sys_prompt = prompts.BULLET_PLAN_SYSTEM.format(
         site_language=site["language"], product_facts=product_facts,
         keywords=", ".join(keywords[:20]),
         competitor_style=competitor_style or "（无竞品数据，按每条 200-260 字符把握）",
+        n_bullets=max(n_bullets, 1),
     )
     data = call_structured(llm, sys_prompt, prompts.BULLET_PLAN_HUMAN,
                            {"format_instructions": ""}, BulletPlan, temperature=0.6)
@@ -112,16 +134,27 @@ def generate_bullet_plans(site: dict, product_facts: str, keywords: list,
 
 
 def generate_bullets(site: dict, product_facts: str, keywords: list,
-                     direction: str, angles: list, competitor_style: str = "") -> dict:
+                     direction: str, angles: list, competitor_style: str = "",
+                     covered_keywords: list | None = None, n_bullets: int = 5) -> dict:
+    n = max(n_bullets, 1)
     llm = get_llm(temperature=0.4)
     sys_prompt = prompts.BULLET_SYSTEM.format(
         site_language=site["language"], site_spelling=site["spelling"],
-        direction=direction, angles="\n".join(f"{i+1}. {a}" for i, a in enumerate(angles)),
-        keywords=", ".join(keywords[:20]), product_facts=product_facts,
+        site_notes=site.get("style_notes") or site["language"],
+        direction=direction, angles="\n".join(f"{i+1}. {a}" for i, a in enumerate(angles[:n])),
+        keywords=", ".join(keywords[:18]) or "（无额外关键词）",
+        covered_keywords=", ".join((covered_keywords or [])[:10]) or "（无）",
+        product_facts=product_facts,
         competitor_style=competitor_style or "（无竞品数据，按每条 200-260 字符把握）",
+        n_bullets=n,
     )
     data = call_structured(llm, sys_prompt, prompts.BULLET_HUMAN,
-                           {"format_instructions": ""}, BulletSet, temperature=0.4)
+                           {"format_instructions": "", "n_bullets": n},
+                           BulletSet, temperature=0.4)
+    # 兜底：如果 LLM 返回条数不对，截断或补一个空的，让后续流程能跑
+    data["bullets"] = data["bullets"][:n]
+    while len(data["bullets"]) < n:
+        data["bullets"].append({"benefit": "", "feature": "", "zh": ""})
     data["formatted"] = [format_bullet(b) for b in data["bullets"]]
     return data
 
@@ -158,6 +191,34 @@ def translate_listing(name: str, highlights: str) -> dict:
                       HumanMessage(content=f"商品名称：{name}\n商品亮点：{highlights}")])
     data = json.loads(_extract_json(msg.content))
     return {"name_zh": data.get("name_zh", ""), "highlights_zh": data.get("highlights_zh", "")}
+
+
+def translate_titles(variants: list) -> list:
+    """批量把多个候选标题的名称与亮点翻译成中文，返回与输入同序的列表。"""
+    if not variants:
+        return []
+    llm = get_llm(temperature=0.2)
+    sys_text = ("你是电商文案翻译。用户会给你多个标题方案，每个方案包含英文商品名称和商品亮点。"
+                "请逐条翻译成简体中文，忠实原意、不增删信息，短语保持短语形式。"
+                "只输出 JSON，按输入顺序返回全部条目："
+                '{"items": [{"i": 0, "name_zh": "...", "highlights_zh": "..."}]}')
+    payload = [{"i": i, "name": v.get("product_name", ""), "highlights": v.get("highlights", "")}
+               for i, v in enumerate(variants)]
+    msg = llm.invoke([SystemMessage(content=sys_text),
+                      HumanMessage(content=json.dumps(payload, ensure_ascii=False))])
+    data = json.loads(_extract_json(msg.content))
+    mapping = {}
+    for item in data.get("items") or []:
+        try:
+            mapping[int(item.get("i", -1))] = item
+        except (TypeError, ValueError):
+            continue
+    out = []
+    for i in range(len(variants)):
+        item = mapping.get(i) or {}
+        out.append({"name_zh": (item.get("name_zh") or "").strip(),
+                    "highlights_zh": (item.get("highlights_zh") or "").strip()})
+    return out
 
 
 def revise(site: dict, current: str, instruction: str, constraint: str) -> str:

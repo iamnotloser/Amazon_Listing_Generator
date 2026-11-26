@@ -235,6 +235,62 @@ SITES = {
 
 DEFAULT_SITE = "US"
 
+# 各站点本地化表达要求：不仅翻译语言，还要符合当地用词与单位习惯
+STYLE_NOTES = {
+    "en-GB": "英式英语：-ise/-our 拼写（organise / colour / centre）；厨房场景用 tap 而非 faucet，"
+             "可用 washing-up、hob、kitchen roll；单位优先 cm / ml；语气克制，避免 awesome / super 等美式夸张词",
+    "en-US": "美式英语：organize / color / center；单位 inch / oz；避免绝对化宣称",
+    "en-CA": "加拿大英语：拼写接近美式，可并列标注 inch 与 cm",
+    "en-AU": "澳式英语：organise / colour；单位 cm；本地用词如 tap、bench",
+    "en-IN": "印度英语：拼写偏英式，表达正式克制",
+    "en-SG": "新加坡英语：拼写偏英式，表达简洁直接",
+    "de-DE": "德语：名词首字母大写，复合名词连写；使用 Sie 敬语；单位 cm / ml；避免英文词混用",
+    "fr-FR": "法语：注意重音符号与性数配合；单位 cm / ml；避免英文直译语序",
+    "it-IT": "意大利语：注意阴阳性与冠词搭配；单位 cm / ml",
+    "es-ES": "西班牙西班牙语：使用当地常用词；单位 cm / ml",
+    "es-MX": "拉美西班牙语：避免西班牙本土用词；单位 cm / ml",
+    "pt-BR": "巴西葡萄牙语：使用 você 等本地表达；单位 cm / ml",
+    "nl-NL": "荷兰语：复合词连写；单位 cm / ml",
+    "sv-SE": "瑞典语：复合词连写；单位 cm / ml",
+    "pl-PL": "波兰语：注意格变化与词尾；单位 cm / ml",
+    "tr-TR": "土耳其语：注意元音和谐与后缀；单位 cm / ml",
+    "ja-JP": "日语：使用です・ます体；外来语按日本常用片假名写法；单位 cm / ml",
+    "ar-SA": "阿拉伯语：从右到左书写，使用现代标准阿拉伯语；单位 cm / ml",
+    "ar-AE": "阿拉伯语：从右到左书写，使用现代标准阿拉伯语；单位 cm / ml",
+}
+
+
+def get_site(code: str = DEFAULT_SITE) -> dict:
+    if code not in SITES:
+        raise ValueError(f"不支持的站点: {code}，可选 {list(SITES)}")
+    site = dict(SITES[code])
+    site["style_notes"] = STYLE_NOTES.get(
+        site["locale"], f"使用{site['language']}母语表达，避免英文直译语序；单位按当地习惯")
+    return site
+
+
+# ASIN 站点推断：按主流销售站点顺序探测，第一个抓到 title 的即是源站点
+ASIN_PROBE_ORDER = ["US", "UK", "CA", "DE", "FR", "IT", "ES", "JP", "AU", "MX"]
+
+
+def guess_asin_site(asin: str) -> str | None:
+    """尝试在主流站点抓一次 ASIN，返回第一个成功的站点 code。
+
+    失败时返回 None（调用方应该退回到手动/目标站点模式）。
+    """
+    from listing_gen.fetcher import ListingFetcher
+    for code in ASIN_PROBE_ORDER:
+        try:
+            site = SITES[code]
+            with ListingFetcher(site["domain"], site["locale"], site["timezone"],
+                                site.get("currency", "USD"), headless=True) as f:
+                d = f.fetch(asin)
+                if d and d.get("title"):
+                    return code
+        except Exception:
+            continue
+    return None
+
 # 官方明确禁用的特殊字符
 TITLE_FORBIDDEN_SYMBOLS = ["!", "$", "?", "_", "{", "}", "^", "¬", "¦"]
 
@@ -271,9 +327,3 @@ BULLET_PLACEHOLDERS = ["n/a", "na", "tbd", "not applicable", "to be determined",
 # 测量单位（这些单位前的阿拉伯数字是允许的）
 MEASURE_UNITS = {"in", "inch", "inches", "ft", "cm", "mm", "m", "oz", "lb", "lbs",
                  "g", "kg", "ml", "l", "pcs", "count", "pack", "w", "v", "db"}
-
-
-def get_site(code: str = DEFAULT_SITE) -> dict:
-    if code not in SITES:
-        raise ValueError(f"不支持的站点: {code}，可选 {list(SITES)}")
-    return SITES[code]

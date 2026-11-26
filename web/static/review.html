@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Listing 合规评估 · Amazon Listing 生成器</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>
+  :root{
+    color-scheme: light dark;
+    --bg:#f6f7f9; --card:#fff; --text:#17181c; --muted:#6b7280; --line:#e5e7eb;
+    --brand:#0b8a4b; --brand-soft:#e9f7ef; --warn:#b45309; --warn-soft:#fef3c7;
+    --ok:#047857; --ok-soft:#e7f6ef; --bad:#b91c1c; --bad-soft:#fdecec;
+    --radius:12px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0d1117; --card:#161b22; --text:#e6edf3; --muted:#8b98a5; --line:#2a323c;
+      --brand:#3fb950; --brand-soft:#132a1a; --warn:#d29922; --warn-soft:#2b2312;
+      --ok:#3fb950; --ok-soft:#0f2a1a; --bad:#f85149; --bad-soft:#2d1517;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:14px/1.7 -apple-system,"PingFang SC","Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:28px 20px 70px}
+  .top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px}
+  h1{font-size:20px;margin:0}
+  .back{border:1px solid var(--line);background:var(--card);color:var(--muted);
+        border-radius:9px;padding:7px 14px;font-size:13px;cursor:pointer;text-decoration:none}
+  .back:hover{border-color:var(--brand);color:var(--brand)}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px;margin-bottom:16px}
+  .verdict{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .badge{font-size:15px;font-weight:700;padding:6px 16px;border-radius:999px;
+         background:var(--brand-soft);color:var(--brand)}
+  .badge.warn{background:var(--warn-soft);color:var(--warn)}
+  .badge.bad{background:var(--bad-soft);color:var(--bad)}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+  .chip{font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+  .chip.fail{background:var(--bad-soft);color:var(--bad);border-color:transparent}
+  .chip.warn{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+  .chip.pass{background:var(--ok-soft);color:var(--ok);border-color:transparent}
+  h2{font-size:15px;margin:0 0 12px}
+  .summary{color:var(--muted);font-size:13px;margin:10px 0 0}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{border-top:1px solid var(--line);padding:10px 8px;text-align:left;vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12px;border-top:0}
+  td.lv{white-space:nowrap;font-weight:700;font-size:12px}
+  td.fail{color:var(--bad)}
+  td.warn{color:var(--warn)}
+  td.info{color:var(--muted)}
+  .loc{white-space:nowrap;color:var(--muted);font-size:12px}
+  details{margin-top:12px}
+  summary{cursor:pointer;font-size:13px;color:var(--muted)}
+  .before{margin-top:12px;border-top:1px dashed var(--line);padding-top:12px}
+  .before h3{font-size:12px;color:var(--muted);font-weight:500;margin:12px 0 6px}
+  .before p{margin:0 0 6px;font-size:13px}
+  .before ol{margin:0;padding-left:20px;font-size:13px}
+  .before li{margin-bottom:6px}
+  .empty{color:var(--muted);font-size:13px;text-align:center;padding:46px 0}
+  .err{color:var(--bad)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>Listing 合规评估</h1>
+    <a class="back" href="/">← 返回生成结果</a>
+  </div>
+  <div class="sub" id="sub">amazon-ops-optimizer · 硬规则扫描 + 语义复核</div>
+  <div id="body"><div class="card"><div class="empty">加载中…</div></div></div>
+</div>
+
+<script>
+(function(){
+  const LV_LABEL = {ready: "通过", fix: "建议修改", blocked: "存在阻断项"};
+  const jobId = new URLSearchParams(location.search).get("job");
+  const body = document.getElementById("body");
+
+  function esc(s){
+    return String(s == null ? "" : s).replace(/[&<>"']/g, c => (
+      {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]
+    ));
+  }
+  function fail(msg){
+    body.innerHTML = `<div class="card"><div class="empty err">${esc(msg)}</div></div>`;
+  }
+
+  if (!jobId) { fail("缺少任务 ID，请从生成结果页点击「listing 合规评估」进入"); return; }
+
+  fetch(`/api/jobs/${jobId}`)
+    .then(r => { if (!r.ok) throw new Error("任务不存在或已失效"); return r.json(); })
+    .then(job => {
+      const res = job.result || {};
+      const rv = res.review || {};
+      render(res, rv);
+    })
+    .catch(e => fail(e.message || String(e)));
+
+  function render(res, rv){
+    if (!rv.verdict) { fail("该任务没有合规评估数据"); return; }
+    if (rv.verdict === "skipped") {
+      body.innerHTML = `<div class="card"><div class="empty">该任务生成时未勾选合规评估，没有可展示的结果</div></div>`;
+      return;
+    }
+
+    const issues = rv.issues || [];
+    const nFail = issues.filter(x => x.level === "FAIL").length;
+    const nWarn = issues.filter(x => x.level === "WARN").length;
+    const nInfo = issues.filter(x => x.level === "INFO").length;
+
+    let html = "";
+
+    // 结论
+    const vLabel = LV_LABEL[rv.verdict] || rv.verdict;
+    const vCls = rv.verdict === "ready" ? "" : (rv.verdict === "blocked" ? "bad" : "warn");
+    const afterNote = rv.after_verdict
+      ? `调整后：${esc(LV_LABEL[rv.after_verdict] || rv.after_verdict)}`
+      : "";
+    html += `<div class="card">
+      <div class="verdict">
+        <h2 style="margin:0">评估结论</h2>
+        <span class="badge ${vCls}">${esc(vLabel)}</span>
+        ${rv.adjusted ? `<span class="chip">已自动调整一轮</span>` : ""}
+        ${afterNote ? `<span class="chip">${afterNote}</span>` : ""}
+        <div class="chips">
+          ${nFail ? `<span class="chip fail">FAIL ${nFail}</span>` : ""}
+          ${nWarn ? `<span class="chip warn">WARN ${nWarn}</span>` : ""}
+          ${nInfo ? `<span class="chip">INFO ${nInfo}</span>` : ""}
+          ${!issues.length ? `<span class="chip pass">无问题</span>` : ""}
+        </div>
+      </div>
+      ${rv.summary ? `<p class="summary">${esc(rv.summary)}</p>` : ""}
+      <p class="summary">站点：${esc(res.site_name || res.site || "")}　任务：${esc(jobId)}
+        ${res.product_name ? `　商品：${esc(res.product_name)}` : ""}</p>
+    </div>`;
+
+    // 问题清单
+    html += `<div class="card"><h2>问题清单（${issues.length}）</h2>`;
+    if (issues.length) {
+      html += `<table>
+        <thead><tr><th style="width:70px">级别</th><th style="width:110px">位置</th><th>问题</th><th>建议</th></tr></thead>
+        <tbody>`;
+      issues.forEach(x => {
+        const lv = (x.level || "INFO").toUpperCase();
+        const cls = lv === "FAIL" ? "fail" : (lv === "WARN" ? "warn" : "info");
+        html += `<tr>
+          <td class="lv ${cls}">${esc(lv)}</td>
+          <td class="loc">${esc(x.location || "")}</td>
+          <td>${esc(x.problem || "")}</td>
+          <td class="loc" style="white-space:normal">${esc(x.fix || "")}</td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
+    } else {
+      html += `<div class="empty">未发现需要整改的问题</div>`;
+    }
+    if (rv.after_issues && rv.after_issues.length) {
+      html += `<p class="summary">调整后重新扫描仍有 ${rv.after_issues.length} 项提示（多为建议级）</p>
+        <ul style="margin:6px 0 0;padding-left:18px;font-size:13px;color:var(--muted)">
+        ${rv.after_issues.map(x => `<li>${esc(x)}</li>`).join("")}</ul>`;
+    }
+    html += `</div>`;
+
+    // 调整前内容
+    if (rv.adjusted && rv.before) {
+      const b = rv.before;
+      html += `<div class="card"><h2>调整前内容</h2>
+        <div class="before">
+          <h3>商品名称</h3><p>${esc(b.product_name || "")}</p>
+          <h3>商品亮点</h3><p>${esc(b.highlights || "")}</p>
+          <h3>五点描述</h3>
+          <ol>${(b.bullets || []).map(x => `<li>${esc(x)}</li>`).join("")}</ol>
+        </div>
+        <details>
+          <summary>查看当前（调整后）内容</summary>
+          <div class="before">
+            <h3>商品名称</h3><p>${esc(res.product_name || "")}</p>
+            <h3>商品亮点</h3><p>${esc(res.highlights || "")}</p>
+            <h3>五点描述</h3>
+            <ol>${(res.bullets || []).map(x => `<li>${esc(x)}</li>`).join("")}</ol>
+          </div>
+        </details>
+      </div>`;
+    }
+
+    body.innerHTML = html;
+  }
+})();
+</script>
+</body>
+</html>

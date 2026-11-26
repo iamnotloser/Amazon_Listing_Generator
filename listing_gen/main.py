@@ -31,6 +31,7 @@ def main():
     ap.add_argument("--search-pages", type=int, default=5)
     ap.add_argument("--bsr-max", type=int, default=100)
     ap.add_argument("--auto", action="store_true", help="非交互，自动选第一个方案")
+    ap.add_argument("--no-review", action="store_true", help="跳过生成后的合规评估")
     args = ap.parse_args()
 
     if not args.asin:
@@ -45,6 +46,7 @@ def main():
         "xiyou_top": args.xiyou_top,
         "no_xiyou": args.no_xiyou,
         "no_xiyou_enrich": args.no_xiyou_enrich,
+        "review": not args.no_review,
         "competitors": [a.strip() for a in args.competitors.split(",") if a.strip()],
         "auto_competitors": not args.competitors,
         "search_keyword": args.search_keyword,

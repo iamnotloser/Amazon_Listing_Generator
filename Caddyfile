@@ -1,0 +1,22 @@
+# 把 YOUR_DOMAIN.COM 换成你的域名（例如 listinggen.example.com）
+# 域名 A 记录必须已指向服务器公网 IP
+# Caddy 首次启动会自动向 Let's Encrypt 申请 HTTPS 证书
+
+YOUR_DOMAIN.COM {
+    reverse_proxy web:8000
+
+    # 静态资源缓存
+    @static path /static/*
+    handle @static {
+        header Cache-Control "public, max-age=3600"
+    }
+}
+
+# 80 端口自动跳 HTTPS（caddy 默认做的，留个空块也行）
+:80 {
+    respond 301 {
+        method GET HEAD
+        status 301
+        header Location "https://{host}{uri}"
+    }
+}

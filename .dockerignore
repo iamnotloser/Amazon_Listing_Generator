@@ -1,0 +1,33 @@
+# Git / IDE
+.git
+.gitignore
+.trae
+.vscode
+.idea
+node_modules
+__pycache__/
+*.pyc
+*.pyo
+
+# 本地运行产物
+debug.log
+output/
+data/cache/
+
+# 个人文件 & 敏感信息
+.env
+.env.local
+.env.production
+
+# 简历 & 临时文件
+*.docx
+*.png
+*.7z
+*.log
+*.zip
+
+# 测试 & 探针脚本
+test_*.py
+probe_*.py
+_probe.py
+check_env.py

@@ -13,7 +13,7 @@ services:
       - HOST=0.0.0.0
       - PORT=8000
     volumes:
-      - ./data/cache:/app/data/cache
+      - ./listing_gen/data/cache:/app/listing_gen/data/cache
       - ./output:/app/output
     restart: unless-stopped
     healthcheck:

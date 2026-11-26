@@ -5,6 +5,13 @@
 YOUR_DOMAIN.COM {
     reverse_proxy web:8000
 
+    # 【建议开启】基础认证，避免公网任何人调用你的付费 API Key
+    # 生成密码哈希：docker compose exec caddy caddy hash-password --plaintext '你的密码'
+    # 然后把下面两行的注释去掉、替换用户名和哈希
+    # basic_auth {
+    #     admin $2a$14$替换成上一步生成的哈希
+    # }
+
     # 静态资源缓存
     @static path /static/*
     handle @static {

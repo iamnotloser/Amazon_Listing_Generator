@@ -37,7 +37,7 @@ COPY web ./web
 COPY .env.example .env.example
 
 # 数据目录（缓存、输出）
-RUN mkdir -p /app/data/cache /app/output
+RUN mkdir -p /app/listing_gen/data/cache /app/output
 
 ENV HOST=0.0.0.0 PORT=8000 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \

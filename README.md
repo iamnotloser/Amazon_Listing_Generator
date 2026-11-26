@@ -1,6 +1,6 @@
 # Amazon Listing Generator
 
-面向亚马逊跨境的 Listing 生成工具：输入 ASIN 或手填产品信息，自动完成竞品分析、关键词挖掘，并生成**商品名称 / 商品亮点 / 五点描述**的中英对照版本。
+面向亚马逊运营的 Listing 智能生成工具：输入 相关产品ASIN 或手填产品信息，自动完成竞品查找分析、关键词挖掘、标题五点分析，并生成**商品名称 / 商品亮点 / 五点描述**的中外文对照版本。
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688)

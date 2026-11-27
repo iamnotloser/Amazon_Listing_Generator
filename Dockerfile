@@ -5,14 +5,24 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# 国内 PyPI 镜像（如需换回官方源，删掉 -i 参数即可）
+ARG PIP_INDEX=https://mirrors.aliyun.com/pypi/simple/
+RUN pip install --no-cache-dir -i ${PIP_INDEX} -r requirements.txt
 
 
 FROM python:3.11-slim AS runtime
 
-# Chromium 系统依赖（playwright install --with-deps 会帮我们装一遍，这里先补齐 apt 源）
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+# Debian apt 源换阿里云镜像 + Chromium 系统依赖
+RUN set -eux; \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources; \
+    fi; \
+    if [ -f /etc/apt/sources.list ]; then \
+        sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list; \
+    fi; \
+    apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         libnss3 libnspr4 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 \
         libcups2 libdrm2 libxkbcommon0 libatspi2.0-0 libxcomposite1 \
         libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 \
@@ -28,8 +38,12 @@ WORKDIR /app
 # 从 builder 拿 Python 包
 COPY --from=builder /usr/local /usr/local
 
-# 先装 Chromium（缓存利用：依赖没改就不用重装）
-RUN playwright install chromium --with-deps
+# Chromium 浏览器二进制走 npmmirror 镜像，避免从 playwright.azureedge.net 下载卡死
+ENV PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+# 先装 Chromium（系统库上面已装好，这里不再 --with-deps，减少一次 apt 往返）
+RUN playwright install chromium
 
 # 应用代码
 COPY listing_gen ./listing_gen

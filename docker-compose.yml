@@ -1,11 +1,11 @@
-version: "3.9"
-
-# 把下面的 YOUR_DOMAIN.COM 换成你买的域名（例如 listinggen.example.com）
-# 域名 DNS 必须已指向服务器公网 IP，Caddy 才能自动签 HTTPS 证书
+# 使用共享的 Caddy 网关（部署在同机的 gateway 服务上），不自带 caddy。
+# 启动前确保存在外部 Docker 网络： docker network create web
+# 网关 Caddyfile 中加一个站点： reverse_proxy listinggen-web:8000
 
 services:
   web:
     build: .
+    image: listinggen:latest
     container_name: listinggen-web
     env_file:
       - .env
@@ -21,21 +21,11 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-
-  caddy:
-    image: caddy:2-alpine
-    container_name: listinggen-caddy
-    depends_on:
+    expose:
+      - "8000"
+    networks:
       - web
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
-    restart: unless-stopped
 
-volumes:
-  caddy_data:
-  caddy_config:
+networks:
+  web:
+    external: true
